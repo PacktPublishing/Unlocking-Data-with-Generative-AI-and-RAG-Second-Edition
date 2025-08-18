@@ -1,0 +1,163 @@
+@prefix : <http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xml: <http://www.w3.org/XML/1998/namespace> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@base <http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/> .
+
+<http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology> rdf:type owl:Ontology ;
+                                                                              owl:imports <http://www.w3.org/TR/skos-reference/skos-owl1-dl.rdf> .
+
+#################################################################
+#    Object Properties
+#################################################################
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/isRegulatedBy
+:isRegulatedBy rdf:type owl:ObjectProperty ;
+               rdfs:domain :FinancialInstrument ;
+               rdfs:range :RegulatoryAuthority .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/issuedBy
+:issuedBy rdf:type owl:ObjectProperty ;
+          rdfs:domain :FinancialInstrument ;
+          rdfs:range :Organization .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/ownedBy
+:ownedBy rdf:type owl:ObjectProperty ;
+         rdfs:domain :FinancialInstrument ;
+         rdfs:range :Organization ,
+                    :Person .
+
+
+#################################################################
+#    Data properties
+#################################################################
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/hasTicker
+:hasTicker rdf:type owl:DatatypeProperty ;
+           rdfs:subPropertyOf owl:topDataProperty ;
+           rdfs:domain :FinancialInstrument ;
+           rdfs:range xsd:string .
+
+
+#################################################################
+#    Classes
+#################################################################
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Account
+:Account rdf:type owl:Class .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Bond
+:Bond rdf:type owl:Class ;
+      rdfs:subClassOf :Debt ;
+      rdfs:label "Bond" ;
+      <http://www.w3.org/2004/02/skos/core#altLabel> "Bond Security" ;
+      <http://www.w3.org/2004/02/skos/core#definition> "A debt security issued by governments or corporations, paying periodic interest and repaying principal at maturity." ;
+      <http://www.w3.org/2004/02/skos/core#example> "USTB is a Bond individual issued by a regulatory authority." ;
+      <http://www.w3.org/2004/02/skos/core#hiddenLabel> "debt bond" ,
+                                                        "fixed income security" ;
+      <http://www.w3.org/2004/02/skos/core#scopeNote> "Includes fixed-income securities with defined term and coupon; excludes unsecured debt not structured as bonds." .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Debt
+:Debt rdf:type owl:Class ;
+      rdfs:subClassOf :FinancialInstrument ;
+      owl:disjointWith :Equity .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Equity
+:Equity rdf:type owl:Class ;
+        rdfs:subClassOf :FinancialInstrument .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/FinancialInstrument
+:FinancialInstrument rdf:type owl:Class .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Organization
+:Organization rdf:type owl:Class .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Person
+:Person rdf:type owl:Class .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/RegulatoryAuthority
+:RegulatoryAuthority rdf:type owl:Class ;
+                     rdfs:subClassOf :Organization .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Stock
+:Stock rdf:type owl:Class ;
+       rdfs:subClassOf :Equity ;
+       rdfs:label "Stock" ;
+       <http://www.w3.org/2004/02/skos/core#altLabel> "Share" ;
+       <http://www.w3.org/2004/02/skos/core#definition> "A security representing equity ownership in a corporation." ;
+       <http://www.w3.org/2004/02/skos/core#example> "AAPL is a Stock concept instance with ticker ‘AAPL’." ;
+       <http://www.w3.org/2004/02/skos/core#hiddenLabel> "common stock" ,
+                                                         "equity share" ;
+       <http://www.w3.org/2004/02/skos/core#scopeNote> "Includes only publicly traded equity securities; excluding private share classes (LP units, founder’s shares)." .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Transaction
+:Transaction rdf:type owl:Class .
+
+
+#################################################################
+#    Individuals
+#################################################################
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/AAPL
+:AAPL rdf:type owl:NamedIndividual ,
+               :Stock ;
+      :isRegulatedBy :SEC ;
+      :issuedBy :Apple_Inc ;
+      :hasTicker "AAPL" ;
+      rdfs:label "AAPL" .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Apple_Inc
+:Apple_Inc rdf:type owl:NamedIndividual ,
+                    :Organization .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/MSFT
+:MSFT rdf:type owl:NamedIndividual ,
+               :Stock ;
+      :isRegulatedBy :SEC ;
+      :issuedBy :Microsoft_Corp ;
+      :hasTicker "MSFT" ;
+      rdfs:label "MSFT" .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Microsoft_Corp
+:Microsoft_Corp rdf:type owl:NamedIndividual ,
+                         :Organization .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/SEC
+:SEC rdf:type owl:NamedIndividual ,
+              :RegulatoryAuthority .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/USTB
+:USTB rdf:type owl:NamedIndividual ,
+               :Bond ;
+      :issuedBy :Victory_Capital ;
+      :hasTicker "USTB" ;
+      rdfs:label "USTB" .
+
+
+###  http://www.semanticweb.org/keithbourne/ontologies/2025/7/FinancialOntology/Victory_Capital
+:Victory_Capital rdf:type owl:NamedIndividual ,
+                          :Organization ;
+                 rdfs:label "Victory Capital" ;
+                 <http://www.w3.org/2004/02/skos/core#altLabel> "Victory Capital Management Inc." ;
+                 <http://www.w3.org/2004/02/skos/core#definition> "Victory Capital is a U.S.-based investment management firm that offers a range of investment products and services." .
+
+
+###  Generated by the OWL API (version 4.5.29.2024-05-13T12:11:03Z) https://github.com/owlcs/owlapi
