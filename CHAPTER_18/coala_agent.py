@@ -389,3 +389,186 @@ class CoALAAgent:
             },
             "procedural": procedural_stats
         }
+    
+    # ============== Procedural Optimization Methods ==============
+    async def run_procedural_optimization(self):
+        """Run optimization with the configured algorithm"""
+        if not self.conversation_buffer:
+            return None
+        
+        algorithm = self.optimization_algorithm
+        
+        # Format conversations for optimization
+        conversations_text = self._format_conversations_for_optimization()
+        current_performance = self._calculate_current_performance()
+        
+        try:
+            if algorithm == "prompt_memory":
+                result = await self._run_prompt_memory(conversations_text, current_performance)
+            elif algorithm == "gradient":
+                result = await self._run_gradient(conversations_text, current_performance)
+            elif algorithm == "metaprompt":
+                result = await self._run_metaprompt(conversations_text, current_performance)
+            else:
+                print(f"Unknown algorithm: {algorithm}, defaulting to prompt_memory")
+                result = await self._run_prompt_memory(conversations_text, current_performance)
+            
+            if result and result.get("success"):
+                # Update system prompt with learned rules
+                new_rules = result.get("rules", [])
+                if new_rules:
+                    self._update_system_prompt_with_rules(new_rules)
+                
+                # Track optimization
+                self.total_optimizations += 1
+                self.optimization_history.append({
+                    "algorithm": algorithm,
+                    "timestamp": datetime.now(),
+                    "conversations_used": len(self.conversation_buffer),
+                    "rules_learned": len(new_rules)
+                })
+                
+                # Clear buffer after successful optimization
+                self.conversation_buffer.clear()
+                
+            return result
+            
+        except Exception as e:
+            print(f"Optimization failed: {e}")
+            return None
+
+    async def _run_prompt_memory(self, conversations_text: str, performance_text: str) -> dict:
+        """Single-pass pattern extraction"""
+        from prompts import PROMPT_MEMORY_OPTIMIZATION
+        
+        prompt = PROMPT_MEMORY_OPTIMIZATION.format(
+            conversations=conversations_text,
+            current_performance=performance_text
+        )
+        
+        response = await self.llm.ainvoke(prompt)
+        return self._parse_optimization_response(response.content)
+
+    async def _run_gradient(self, conversations_text: str, performance_text: str) -> dict:
+        """Two-phase critique and proposal"""
+        # Try to get domain-specific prompts first
+        critique_prompt = self.domain_agent.get_optimization_prompt("gradient_critique")
+        if not critique_prompt:
+            from prompts import GRADIENT_CRITIQUE_TEMPLATE
+            critique_prompt = GRADIENT_CRITIQUE_TEMPLATE
+        
+        proposal_prompt = self.domain_agent.get_optimization_prompt("gradient_proposal")
+        if not proposal_prompt:
+            from prompts import GRADIENT_PROPOSAL_TEMPLATE
+            proposal_prompt = GRADIENT_PROPOSAL_TEMPLATE
+        
+        # Phase 1: Critique
+        critique_formatted = critique_prompt.format(
+            conversations=conversations_text,
+            current_performance=performance_text
+        )
+        critique_response = await self.llm.ainvoke(critique_formatted)
+        
+        # Phase 2: Proposal based on critique
+        proposal_formatted = proposal_prompt.format(
+            critique=critique_response.content,
+            conversations=conversations_text
+        )
+        proposal_response = await self.llm.ainvoke(proposal_formatted)
+        
+        return self._parse_optimization_response(proposal_response.content)
+
+    async def _run_metaprompt(self, conversations_text: str, performance_text: str) -> dict:
+        """Three-phase deep analysis"""
+        # Try to get domain-specific prompts first
+        surface_prompt = self.domain_agent.get_optimization_prompt("metaprompt_surface")
+        if not surface_prompt:
+            from prompts import METAPROMPT_SURFACE_TEMPLATE
+            surface_prompt = METAPROMPT_SURFACE_TEMPLATE
+        
+        deep_prompt = self.domain_agent.get_optimization_prompt("metaprompt_deep")
+        if not deep_prompt:
+            from prompts import METAPROMPT_DEEP_TEMPLATE
+            deep_prompt = METAPROMPT_DEEP_TEMPLATE
+        
+        synthesis_prompt = self.domain_agent.get_optimization_prompt("metaprompt_synthesis")
+        if not synthesis_prompt:
+            from prompts import METAPROMPT_SYNTHESIS_TEMPLATE
+            synthesis_prompt = METAPROMPT_SYNTHESIS_TEMPLATE
+        
+        # Phase 1: Surface analysis
+        surface_formatted = surface_prompt.format(
+            conversations=conversations_text,
+            current_performance=performance_text
+        )
+        surface_response = await self.llm.ainvoke(surface_formatted)
+        
+        # Phase 2: Deep analysis
+        deep_formatted = deep_prompt.format(
+            surface_analysis=surface_response.content,
+            conversations=conversations_text
+        )
+        deep_response = await self.llm.ainvoke(deep_formatted)
+        
+        # Phase 3: Synthesis
+        synthesis_formatted = synthesis_prompt.format(
+            surface_analysis=surface_response.content,
+            deep_analysis=deep_response.content,
+            conversations=conversations_text
+        )
+        synthesis_response = await self.llm.ainvoke(synthesis_formatted)
+        
+        return self._parse_optimization_response(synthesis_response.content)
+
+    def _parse_optimization_response(self, response: str) -> dict:
+        """Parse LLM response into optimization result"""
+        try:
+            import json
+            import re
+            
+            # Find JSON in response
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                return {
+                    "success": True,
+                    "rules": result.get("procedural_rules", []),
+                    "patterns": result.get("patterns_found", []),
+                    "improvements": result.get("improvements", []),
+                    "summary": result.get("optimization_summary", "")
+                }
+        except:
+            pass
+        
+        return {
+            "success": True,
+            "rules": [],
+            "patterns": [],
+            "summary": response[:500]
+        }
+
+    def _update_system_prompt_with_rules(self, rules: list):
+        """Update system prompt with new procedural rules"""
+        if not rules:
+            return
+        
+        # Create rules section
+        rules_text = "\nLearned Procedural Rules:\n"
+        for rule in rules[:5]:  # Limit to top 5 rules
+            if isinstance(rule, dict):
+                rules_text += f"- {rule.get('rule', str(rule))}\n"
+            else:
+                rules_text += f"- {str(rule)}\n"
+        
+        # Update system prompt
+        if "Learned Procedural Rules:" not in self.current_system_prompt:
+            self.current_system_prompt += rules_text
+        else:
+            # Replace existing rules section
+            import re
+            self.current_system_prompt = re.sub(
+                r'Learned Procedural Rules:.*?(?=\n\n|\Z)',
+                rules_text.strip(),
+                self.current_system_prompt,
+                flags=re.DOTALL
+            )

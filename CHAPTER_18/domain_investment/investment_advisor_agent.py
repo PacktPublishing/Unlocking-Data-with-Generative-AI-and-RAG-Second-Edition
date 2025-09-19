@@ -25,7 +25,12 @@ class InvestmentAdvisorAgent(DomainAgent):
     
     def get_procedure_class(self) -> type:
         return DomainProcedure
-    
+
+    def get_optimization_prompt(self, prompt_type: str) -> str:
+        """Get optimization prompt by type"""
+        from .investment_advisor_prompts import get_optimization_prompt
+        return get_optimization_prompt(prompt_type)
+
     def get_community_definitions(self) -> Dict[str, Dict]:
         return {
             "conservative_retirees": {

@@ -88,6 +88,97 @@ Output JSON with EXACT format:
 }}
 """
 
+GRADIENT_CRITIQUE_TEMPLATE = """
+Analyze these conversations to identify problems and successes.
+
+CONVERSATIONS:
+{conversations}
+
+CURRENT PERFORMANCE:
+{current_performance}
+
+Identify:
+1. What behaviors led to failures?
+2. What patterns correlate with satisfaction?
+3. Critical gaps in responses?
+
+Output JSON:
+{{
+    "failures": [list of issues],
+    "successes": [list of what worked],
+    "gaps": [list of missing capabilities]
+}}
+"""
+
+GRADIENT_PROPOSAL_TEMPLATE = """
+Based on this critique, propose improvements.
+
+CRITIQUE:
+{critique}
+
+Generate specific procedural rules to address issues.
+
+Output JSON:
+{{
+    "procedural_rules": [
+        {{"rule": "specific instruction", "rationale": "why"}}
+    ],
+    "optimization_summary": "overall strategy"
+}}
+"""
+
+METAPROMPT_SURFACE_TEMPLATE = """
+Initial analysis of conversations.
+
+{conversations}
+
+Identify obvious patterns.
+
+Output JSON:
+{{
+    "patterns_found": ["pattern1", "pattern2"],
+    "initial_observations": ["observation1", "observation2"]
+}}
+"""
+
+METAPROMPT_DEEP_TEMPLATE = """
+Deeper analysis based on surface patterns.
+
+SURFACE ANALYSIS:
+{surface_analysis}
+
+CONVERSATIONS:
+{conversations}
+
+Find hidden patterns and causal relationships.
+
+Output JSON:
+{{
+    "hidden_patterns": ["pattern1", "pattern2"],
+    "causal_relationships": ["cause->effect"]
+}}
+"""
+
+METAPROMPT_SYNTHESIS_TEMPLATE = """
+Synthesize all findings into rules.
+
+SURFACE:
+{surface_analysis}
+
+DEEP:
+{deep_analysis}
+
+Create comprehensive procedural rules.
+
+Output JSON:
+{{
+    "procedural_rules": [
+        {{"rule": "instruction", "confidence": 0.9}}
+    ],
+    "optimization_summary": "synthesis"
+}}
+"""
+
 # ============== GENERIC SEMANTIC EXTRACTION ==============
 
 SEMANTIC_EXTRACTION_PROMPT = """

@@ -76,3 +76,8 @@ class DomainAgent(ABC):
     def get_semantic_extraction_prompt(self) -> str:
         """Get the domain-specific semantic extraction prompt"""
         pass
+
+    @abstractmethod
+    def get_optimization_prompt(self, prompt_type: str) -> str:
+        """Get optimization prompt by type (for gradient/metaprompt)"""
+        return ""
