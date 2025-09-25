@@ -1,0 +1,21 @@
+{
+  "total_conversations": 500,
+  "unique_users": 50,
+  "success_rate": 0.702,
+  "avg_satisfaction": 3.1252206464407286,
+  "behavioral_patterns": {
+    "with_clarification": 18,
+    "with_specific_data": 247,
+    "with_errors": 19
+  },
+  "query_distribution": {
+    "performance_analysis": 156,
+    "composition_analysis": 60,
+    "exposure_analysis": 106,
+    "market_outlook": 23,
+    "ranking_analysis": 78,
+    "rebalancing": 30,
+    "tax_planning": 26,
+    "risk_assessment": 21
+  }
+}
