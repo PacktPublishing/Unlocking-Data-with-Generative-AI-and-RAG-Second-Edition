@@ -1,19 +1,18 @@
-# coala_agent.py - FIXED VERSION
+# coala_agent.py
 """
-Consolidated CoALA Agent with Episodic, Semantic, and Procedural Memory
-Domain-agnostic implementation that works with any DomainAgent
+Full CoALA Agent with Episodic, Semantic, and Procedural Memory.
+Uses LangMem for procedural memory extraction and optimization.
 """
 
 import json
 from datetime import datetime
 from typing import List, Dict, Optional, TypedDict, Annotated, Sequence
-from collections import defaultdict
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_community.vectorstores import Chroma
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, END
@@ -44,76 +43,53 @@ class AgentState(TypedDict):
 
 
 class CoALAAgent:
-    """
-    Full CoALA agent with episodic, semantic, and procedural memory.
-    Works with any domain by accepting a DomainAgent.
-    """
+    """Full CoALA agent with all three memory types powered by LangMem"""
     
-    def __init__(self, 
-                domain_agent: DomainAgent,
-                model_name: str = "gpt-4o-mini",
-                temperature: float = 0,
-                persist_directory: str = None,
-                optimization_algorithm: str = "prompt_memory",
-                optimization_threshold: int = 10):
-        
+    def __init__(
+        self,
+        domain_agent: DomainAgent,
+        model_name: str = "gpt-4.1-mini",
+        temperature: float = 0,
+        persist_directory: str = None,
+        optimization_algorithm: str = "prompt_memory"
+    ):
         self.domain_agent = domain_agent
         
-        # Use domain-specific directory if not provided
         if persist_directory is None and hasattr(domain_agent, 'memory_dir'):
             persist_directory = domain_agent.memory_dir
         elif persist_directory is None:
             persist_directory = "./memory_store"
         
-        # Initialize LLM and embeddings
         self.llm = ChatOpenAI(model_name=model_name, temperature=temperature)
         self.embeddings = OpenAIEmbeddings()
         self.output_parser = StrOutputParser()
         
-        # Initialize vector store for episodic and semantic memories
         self.vector_store = Chroma(
             collection_name="agent_memory",
             embedding_function=self.embeddings,
             persist_directory=persist_directory
         )
         
-        # Initialize procedural memory with domain agent
         self.procedural_memory = ProceduralMemory(
-            llm=self.llm, 
-            domain_agent=domain_agent
+            llm=self.llm,
+            domain_agent=domain_agent,
+            optimization_algorithm=optimization_algorithm
         )
         
-        # Initialize optimization components
-        self.optimization_algorithm = optimization_algorithm
-        self.optimization_threshold = optimization_threshold
-        self.conversation_buffer = []
-        self.total_optimizations = 0
-        self.optimization_history = []
-        self.current_system_prompt = "You are a helpful AI assistant."
-        
-        # Build the workflow
         self.workflow = self._build_workflow()
         self.app = self.workflow.compile()
         
-        # Track current state
         self.current_user_id = "default"
         self.current_conversation_id = None
     
     def _build_workflow(self) -> StateGraph:
-        """Build the LangGraph workflow for the agent"""
         workflow = StateGraph(AgentState)
         workflow.add_node("memory_agent", self._unified_memory_agent)
         workflow.set_entry_point("memory_agent")
         workflow.add_edge("memory_agent", END)
         return workflow
     
-    # ============== Episodic Memory Methods ==============
-    
-    def store_episodic_memory(self, 
-                             conversation_id: str, 
-                             messages: List,
-                             summary: Optional[str] = None) -> str:
-        """Store a conversation in episodic memory"""
+    def store_episodic_memory(self, conversation_id: str, messages: List, summary: Optional[str] = None) -> str:
         if not summary and messages:
             first_msg = messages[0]
             if isinstance(first_msg, tuple):
@@ -130,24 +106,13 @@ class CoALAAgent:
         }
         
         conversation_text = self._format_messages(messages)
-        self.vector_store.add_documents([
-            Document(page_content=conversation_text, metadata=metadata)
-        ])
+        self.vector_store.add_documents([Document(page_content=conversation_text, metadata=metadata)])
         return conversation_id
     
     def retrieve_episodic_memories(self, query: str, k: int = 3) -> List[Document]:
-        """Retrieve relevant episodic memories"""
-        return self.vector_store.similarity_search(
-            query=query, 
-            k=k, 
-            filter={"type": {"$eq": "episodic"}}
-        )
-    
-    # ============== Semantic Memory Methods ==============
+        return self.vector_store.similarity_search(query=query, k=k, filter={"type": {"$eq": "episodic"}})
     
     def extract_semantic_facts(self, messages: List) -> List[SemanticFact]:
-        """Extract semantic facts from a conversation"""
-        # Use domain-specific extraction prompt
         extraction_prompt_template = self.domain_agent.get_semantic_extraction_prompt()
         extraction_prompt = PromptTemplate.from_template(extraction_prompt_template)
         
@@ -159,25 +124,19 @@ class CoALAAgent:
             
             facts = []
             for fact_dict in result.get("facts", []):
-                # Fix the source field if it's a boolean
                 if "source" in fact_dict:
                     if isinstance(fact_dict["source"], bool):
-                        # Convert boolean to appropriate string
                         fact_dict["source"] = "assistant" if fact_dict["source"] else "user"
                     elif fact_dict["source"] not in ["user", "assistant"]:
-                        # Default to "assistant" for any other invalid values
                         fact_dict["source"] = "assistant"
                 
-                # Ensure all required fields are strings
                 for field in ["subject", "predicate", "object"]:
                     if field in fact_dict and not isinstance(fact_dict[field], str):
                         fact_dict[field] = str(fact_dict[field])
                 
                 try:
                     facts.append(SemanticFact(**fact_dict))
-                except Exception as e:
-                    # Skip invalid facts
-                    print(f"Skipping invalid fact: {e}")
+                except Exception:
                     continue
                     
             return facts
@@ -185,10 +144,7 @@ class CoALAAgent:
             print(f"Fact extraction error: {e}")
             return []
     
-    def store_semantic_facts(self, 
-                            facts: List[SemanticFact],
-                            user_id: Optional[str] = None) -> int:
-        """Store semantic facts in memory"""
+    def store_semantic_facts(self, facts: List[SemanticFact], user_id: Optional[str] = None) -> int:
         if user_id is None:
             user_id = self.current_user_id
             
@@ -211,23 +167,14 @@ class CoALAAgent:
             self.vector_store.add_documents(documents)
         return len(documents)
     
-    def retrieve_semantic_facts(self, 
-                               query: str,
-                               user_id: Optional[str] = None,
-                               k: int = 5) -> List[Dict]:
-        """Retrieve relevant semantic facts"""
+    def retrieve_semantic_facts(self, query: str, user_id: Optional[str] = None, k: int = 5) -> List[Dict]:
         if user_id is None:
             user_id = self.current_user_id
             
         results = self.vector_store.similarity_search(
             query=query,
             k=k,
-            filter={
-                "$and": [
-                    {"type": {"$eq": "semantic"}},
-                    {"user_id": {"$eq": user_id}}
-                ]
-            }
+            filter={"$and": [{"type": {"$eq": "semantic"}}, {"user_id": {"$eq": user_id}}]}
         )
         
         return [{
@@ -237,10 +184,7 @@ class CoALAAgent:
             "confidence": doc.metadata.get("confidence", 1.0)
         } for doc in results]
     
-    # ============== Helper Methods ==============
-    
     def _format_messages(self, messages: List) -> str:
-        """Format messages into a readable string"""
         conversation_text = ""
         for msg in messages:
             if isinstance(msg, tuple):
@@ -252,7 +196,6 @@ class CoALAAgent:
         return conversation_text
     
     def _format_semantic_context(self, facts: List[Dict]) -> str:
-        """Format semantic facts into context string"""
         if not facts:
             return "No relevant facts found."
         
@@ -263,18 +206,19 @@ class CoALAAgent:
         return context
     
     def _unified_memory_agent(self, state: AgentState) -> dict:
-        """Main agent logic combining all memory types"""
         current_messages = state.get("messages", [])
         user_id = state.get("user_id", self.current_user_id)
-        conversation_id = state.get("conversation_id", 
-                                   f"conv_{datetime.now().timestamp()}")
+        conversation_id = state.get("conversation_id", f"conv_{datetime.now().timestamp()}")
         
         episodic_context = ""
         semantic_context = ""
         procedural_context = ""
+        latest_query = ""
+        profile = {}
+        strategy = None
+        past_episodes = []
         
         if current_messages:
-            # Get latest query
             latest_msg = current_messages[-1]
             if isinstance(latest_msg, tuple):
                 latest_query = latest_msg[1]
@@ -283,7 +227,6 @@ class CoALAAgent:
             else:
                 latest_query = str(latest_msg)
             
-            # Retrieve episodic memories
             past_episodes = self.retrieve_episodic_memories(latest_query, k=2)
             if past_episodes:
                 episodic_context = "Relevant past discussions:\n"
@@ -291,28 +234,19 @@ class CoALAAgent:
                     timestamp = episode.metadata.get('timestamp', 'Unknown')
                     episodic_context += f"[{timestamp}]:\n{episode.page_content[:200]}...\n\n"
             
-            # Retrieve semantic facts
             facts = self.retrieve_semantic_facts(latest_query, user_id=user_id, k=5)
             semantic_context = self._format_semantic_context(facts)
             
-            # Extract profile and retrieve procedural strategy
             profile = self.domain_agent.extract_profile(facts, latest_query)
-            strategy = self.procedural_memory.get_investment_strategy(
-                latest_query, 
-                profile,
-                user_id=user_id
-            )
+            strategy = self.procedural_memory.get_investment_strategy(latest_query, profile, user_id=user_id)
             
             if strategy:
                 procedural_context = self.domain_agent.format_procedural_context(strategy)
         
-        # Generate response with all memory contexts
         response_prompt_template = self.domain_agent.get_response_prompt_template()
         response_prompt = PromptTemplate.from_template(response_prompt_template)
         
-        formatted_messages = self._format_messages(
-            current_messages[-5:] if current_messages else []
-        )
+        formatted_messages = self._format_messages(current_messages[-5:] if current_messages else [])
         
         chain = response_prompt | self.llm | self.output_parser
         response = chain.invoke({
@@ -322,11 +256,10 @@ class CoALAAgent:
             "messages": formatted_messages
         })
         
-        # Store memories after generating response
         if len(current_messages) >= 2:
             self.store_episodic_memory(conversation_id, current_messages)
         
-        # Extract and store semantic facts
+        messages_with_response = []
         if current_messages:
             messages_with_response = current_messages + [("assistant", response)]
             new_facts = self.extract_semantic_facts(messages_with_response[-3:])
@@ -334,7 +267,6 @@ class CoALAAgent:
                 stored = self.store_semantic_facts(new_facts, user_id)
                 state["semantic_facts"] = {"extracted": stored}
         
-        # Learn from this interaction (procedural memory)
         if current_messages and latest_query:
             interaction_data = {
                 "messages": [str(m) for m in messages_with_response[-3:]],
@@ -342,13 +274,7 @@ class CoALAAgent:
                 "client_satisfaction": 8,
                 "profile": profile
             }
-            
-            learning_result = self.procedural_memory.learn_from_interaction(
-                latest_query,
-                interaction_data,
-                user_id=user_id,
-                user_profile=profile
-            )
+            self.procedural_memory.learn_from_interaction(latest_query, interaction_data, user_id=user_id, user_profile=profile)
         
         return {
             "messages": [AIMessage(content=response)],
@@ -357,13 +283,7 @@ class CoALAAgent:
             "procedural_strategy": strategy if strategy else {}
         }
     
-    # ============== Public Interface ==============
-    
-    def process_message(self, 
-                       message: str,
-                       user_id: Optional[str] = None,
-                       conversation_id: Optional[str] = None) -> str:
-        """Process a single message and return the response"""
+    def process_message(self, message: str, user_id: Optional[str] = None, conversation_id: Optional[str] = None) -> str:
         if user_id:
             self.current_user_id = user_id
         if conversation_id:
@@ -388,7 +308,6 @@ class CoALAAgent:
         return "I apologize, but I couldn't process that message."
     
     def get_memory_stats(self) -> Dict:
-        """Get comprehensive statistics about all memory systems"""
         procedural_stats = self.procedural_memory.get_stats()
         
         return {
@@ -400,259 +319,9 @@ class CoALAAgent:
             "procedural": procedural_stats
         }
     
-    # ============== Procedural Optimization Methods ==============
-    
-    async def add_conversation_for_learning(self, messages: List[Dict], feedback: Dict) -> bool:
-        """Add a conversation to the buffer and trigger optimization if threshold reached"""
-        self.conversation_buffer.append({
-            "messages": messages,
-            "feedback": feedback,
-            "timestamp": datetime.now()
-        })
-        
-        if len(self.conversation_buffer) >= self.optimization_threshold:
-            result = await self.run_procedural_optimization()
-            return result is not None
-        
-        return False
-    
-    async def force_optimization(self):
-        """Force an optimization even if threshold not reached"""
-        if not self.conversation_buffer:
-            # Add dummy conversations for demo
-            self.conversation_buffer = [
-                {
-                    "messages": [
-                        {"role": "user", "content": "What's my portfolio performance?"},
-                        {"role": "assistant", "content": "Your portfolio is up 5%."}
-                    ],
-                    "feedback": {"success": True, "satisfaction": 4.0}
-                }
-            ]
-        return await self.run_procedural_optimization()
-    
-    def _format_conversations_for_optimization(self) -> str:
-        """Format buffered conversations for optimization"""
-        formatted = []
-        for conv in self.conversation_buffer:
-            formatted.append({
-                "messages": conv["messages"],
-                "feedback": conv["feedback"]
-            })
-        return json.dumps(formatted, indent=2)
-    
-    def _calculate_current_performance(self) -> str:
-        """Calculate current performance metrics"""
-        if not self.conversation_buffer:
-            return "No conversations to analyze"
-        
-        total = len(self.conversation_buffer)
-        successful = sum(1 for c in self.conversation_buffer if c["feedback"].get("success", False))
-        avg_satisfaction = sum(c["feedback"].get("satisfaction", 0) for c in self.conversation_buffer) / total if total > 0 else 0
-        
-        return f"Success rate: {successful/total:.1%}, Avg satisfaction: {avg_satisfaction:.1f}/5.0"
-    
-    async def run_procedural_optimization(self):
-        """Run optimization with the configured algorithm"""
-        if not self.conversation_buffer:
-            return None
-        
-        algorithm = self.optimization_algorithm
-        
-        # Format conversations for optimization
-        conversations_text = self._format_conversations_for_optimization()
-        current_performance = self._calculate_current_performance()
-        
-        try:
-            if algorithm == "prompt_memory":
-                result = await self._run_prompt_memory(conversations_text, current_performance)
-            elif algorithm == "gradient":
-                result = await self._run_gradient(conversations_text, current_performance)
-            elif algorithm == "metaprompt":
-                result = await self._run_metaprompt(conversations_text, current_performance)
-            else:
-                print(f"Unknown algorithm: {algorithm}, defaulting to prompt_memory")
-                result = await self._run_prompt_memory(conversations_text, current_performance)
-            
-            if result and result.get("success"):
-                # Update system prompt with learned rules
-                new_rules = result.get("rules", [])
-                if new_rules:
-                    self._update_system_prompt_with_rules(new_rules)
-                
-                # Track optimization
-                self.total_optimizations += 1
-                self.optimization_history.append({
-                    "algorithm": algorithm,
-                    "timestamp": datetime.now(),
-                    "conversations_used": len(self.conversation_buffer),
-                    "rules_learned": len(new_rules)
-                })
-                
-                # Clear buffer after successful optimization
-                self.conversation_buffer.clear()
-                
-            return result
-            
-        except Exception as e:
-            print(f"Optimization failed: {e}")
-            return None
-
-    async def _run_prompt_memory(self, conversations_text: str, performance_text: str) -> dict:
-        """Single-pass pattern extraction"""
-        from prompts import PROMPT_MEMORY_OPTIMIZATION
-        
-        prompt = PROMPT_MEMORY_OPTIMIZATION.format(
-            conversations=conversations_text,
-            current_performance=performance_text
-        )
-        
-        response = await self.llm.ainvoke(prompt)
-        return self._parse_optimization_response(response.content)
-
-    async def _run_gradient(self, conversations_text: str, performance_text: str) -> dict:
-        """Two-phase critique and proposal"""
-        # Try to get domain-specific prompts first
-        critique_prompt = self.domain_agent.get_optimization_prompt("gradient_critique")
-        if not critique_prompt:
-            from prompts import GRADIENT_CRITIQUE_TEMPLATE
-            critique_prompt = GRADIENT_CRITIQUE_TEMPLATE
-        
-        proposal_prompt = self.domain_agent.get_optimization_prompt("gradient_proposal")
-        if not proposal_prompt:
-            from prompts import GRADIENT_PROPOSAL_TEMPLATE
-            proposal_prompt = GRADIENT_PROPOSAL_TEMPLATE
-        
-        # Phase 1: Critique
-        critique_formatted = critique_prompt.format(
-            conversations=conversations_text,
-            current_performance=performance_text
-        )
-        critique_response = await self.llm.ainvoke(critique_formatted)
-        
-        # Phase 2: Proposal based on critique
-        proposal_formatted = proposal_prompt.format(
-            critique=critique_response.content,
-            conversations=conversations_text
-        )
-        proposal_response = await self.llm.ainvoke(proposal_formatted)
-        
-        return self._parse_optimization_response(proposal_response.content)
-
-    async def _run_metaprompt(self, conversations_text: str, performance_text: str) -> dict:
-        """Three-phase deep analysis"""
-        # Try to get domain-specific prompts first
-        surface_prompt = self.domain_agent.get_optimization_prompt("metaprompt_surface")
-        if not surface_prompt:
-            from prompts import METAPROMPT_SURFACE_TEMPLATE
-            surface_prompt = METAPROMPT_SURFACE_TEMPLATE
-        
-        deep_prompt = self.domain_agent.get_optimization_prompt("metaprompt_deep")
-        if not deep_prompt:
-            from prompts import METAPROMPT_DEEP_TEMPLATE
-            deep_prompt = METAPROMPT_DEEP_TEMPLATE
-        
-        synthesis_prompt = self.domain_agent.get_optimization_prompt("metaprompt_synthesis")
-        if not synthesis_prompt:
-            from prompts import METAPROMPT_SYNTHESIS_TEMPLATE
-            synthesis_prompt = METAPROMPT_SYNTHESIS_TEMPLATE
-        
-        # Phase 1: Surface analysis
-        surface_formatted = surface_prompt.format(
-            conversations=conversations_text,
-            current_performance=performance_text
-        )
-        surface_response = await self.llm.ainvoke(surface_formatted)
-        
-        # Phase 2: Deep analysis
-        deep_formatted = deep_prompt.format(
-            surface_analysis=surface_response.content,
-            conversations=conversations_text
-        )
-        deep_response = await self.llm.ainvoke(deep_formatted)
-        
-        # Phase 3: Synthesis
-        synthesis_formatted = synthesis_prompt.format(
-            surface_analysis=surface_response.content,
-            deep_analysis=deep_response.content,
-            conversations=conversations_text
-        )
-        synthesis_response = await self.llm.ainvoke(synthesis_formatted)
-        
-        return self._parse_optimization_response(synthesis_response.content)
-
-    def _parse_optimization_response(self, response: str) -> dict:
-        """Parse LLM response into optimization result"""
-        try:
-            import json
-            import re
-            
-            # Find JSON in response
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group())
-                return {
-                    "success": True,
-                    "rules": result.get("procedural_rules", []),
-                    "patterns": result.get("patterns_found", []),
-                    "improvements": result.get("improvements", []),
-                    "summary": result.get("optimization_summary", "")
-                }
-        except:
-            pass
-        
-        return {
-            "success": True,
-            "rules": [],
-            "patterns": [],
-            "summary": response[:500]
-        }
-
-    def _update_system_prompt_with_rules(self, rules: list):
-        """Update system prompt with new procedural rules"""
-        if not rules:
-            return
-        
-        # Create rules section
-        rules_text = "\nLearned Procedural Rules:\n"
-        for rule in rules[:5]:  # Limit to top 5 rules
-            if isinstance(rule, dict):
-                rules_text += f"- {rule.get('rule', str(rule))}\n"
-            else:
-                rules_text += f"- {str(rule)}\n"
-        
-        # Update system prompt
-        if "Learned Procedural Rules:" not in self.current_system_prompt:
-            self.current_system_prompt += rules_text
-        else:
-            # Replace existing rules section
-            import re
-            self.current_system_prompt = re.sub(
-                r'Learned Procedural Rules:.*?(?=\n\n|\Z)',
-                rules_text.strip(),
-                self.current_system_prompt,
-                flags=re.DOTALL
-            )
-    
     def get_all_memory_stats(self) -> Dict:
-        """Get comprehensive stats including optimization history"""
         base_stats = self.get_memory_stats()
-        
-        # Add optimization stats
-        base_stats["procedural"]["total_optimizations"] = self.total_optimizations
-        base_stats["procedural"]["algorithm"] = self.optimization_algorithm
-        base_stats["procedural"]["optimization_history"] = self.optimization_history
-        
-        # Calculate performance metrics from buffer
-        if self.conversation_buffer:
-            total = len(self.conversation_buffer)
-            successful = sum(1 for c in self.conversation_buffer if c["feedback"].get("success", False))
-            avg_satisfaction = sum(c["feedback"].get("satisfaction", 0) for c in self.conversation_buffer) / total if total > 0 else 0
-            
-            base_stats["procedural"]["average_success_rate"] = successful / total if total > 0 else 0
-            base_stats["procedural"]["average_satisfaction"] = avg_satisfaction
-        else:
-            base_stats["procedural"]["average_success_rate"] = 0
-            base_stats["procedural"]["average_satisfaction"] = 0
-        
+        langmem_stats = self.procedural_memory.get_stats().get("langmem", {})
+        base_stats["procedural"]["algorithm"] = langmem_stats.get("algorithm", "prompt_memory")
+        base_stats["procedural"]["total_optimizations"] = langmem_stats.get("total_optimizations", 0)
         return base_stats

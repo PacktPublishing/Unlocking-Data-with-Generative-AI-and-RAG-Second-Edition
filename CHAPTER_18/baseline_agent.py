@@ -1,17 +1,17 @@
 # baseline_agent.py
 """
-CoALA Baseline Agent with Semantic and Episodic Memory
-Consolidated from Code Labs 17-1, 17-2, and 17-3
+CoALA Baseline Agent with Semantic and Episodic Memory.
+Provides foundation for adding procedural memory.
 """
 
-import os
 from datetime import datetime
 from typing import List, Dict, TypedDict, Annotated, Sequence, Optional
+
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_community.vectorstores import Chroma
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, END
@@ -38,58 +38,38 @@ class AgentState(TypedDict):
 
 
 class CoALABaselineAgent:
-    """
-    Baseline agent with semantic and episodic memory capabilities.
-    This agent implements the core memory types from the CoALA framework,
-    providing a foundation for adding procedural memory via LangMem.
-    """
+    """Baseline agent with semantic and episodic memory"""
     
-    def __init__(self, 
-                model_name: str = "gpt-4.1-mini",
-                temperature: float = 0,
-                persist_directory: str = "./memory_store"):
-        """
-        Initialize the CoALA baseline agent with memory systems.
-        
-        Args:
-            model_name: The LLM model to use
-            temperature: Temperature for LLM responses
-            persist_directory: Directory for persisting memory store
-        """
-        # Initialize LLM and embeddings
+    def __init__(
+        self,
+        model_name: str = "gpt-4.1-mini",
+        temperature: float = 0,
+        persist_directory: str = "./memory_store"
+    ):
         self.llm = ChatOpenAI(model_name=model_name, temperature=temperature)
         self.embeddings = OpenAIEmbeddings()
         self.output_parser = StrOutputParser()
         
-        # Initialize vector store for memories
         self.vector_store = Chroma(
             collection_name="agent_memory",
             embedding_function=self.embeddings,
             persist_directory=persist_directory
         )
         
-        # Build the workflow
         self.workflow = self._build_workflow()
         self.app = self.workflow.compile()
         
-        # Track current state
         self.current_user_id = "default"
         self.current_conversation_id = None
     
     def _build_workflow(self) -> StateGraph:
-        """Build the LangGraph workflow for the agent."""
         workflow = StateGraph(AgentState)
         workflow.add_node("memory_agent", self._unified_memory_agent)
         workflow.set_entry_point("memory_agent")
         workflow.add_edge("memory_agent", END)
         return workflow
     
-    # Episodic Memory Methods
-    def store_episodic_memory(self, 
-                             conversation_id: str, 
-                             messages: List,
-                             summary: Optional[str] = None) -> str:
-        """Store a conversation in episodic memory."""
+    def store_episodic_memory(self, conversation_id: str, messages: List, summary: Optional[str] = None) -> str:
         if not summary and messages:
             first_msg = messages[0]
             if isinstance(first_msg, tuple):
@@ -106,30 +86,21 @@ class CoALABaselineAgent:
         }
         
         conversation_text = self._format_messages(messages)
-        self.vector_store.add_documents([
-            Document(page_content=conversation_text, metadata=metadata)
-        ])
+        self.vector_store.add_documents([Document(page_content=conversation_text, metadata=metadata)])
         return conversation_id
     
     def retrieve_episodic_memories(self, query: str, k: int = 3) -> List[Document]:
-        """Retrieve relevant episodic memories."""
-        return self.vector_store.similarity_search(
-            query=query, 
-            k=k, 
-            filter={"type": {"$eq": "episodic"}}
-        )
+        return self.vector_store.similarity_search(query=query, k=k, filter={"type": {"$eq": "episodic"}})
     
-    # Semantic Memory Methods
     def extract_semantic_facts(self, messages: List) -> List[SemanticFact]:
-        """Extract semantic facts from a conversation."""
         extraction_prompt = PromptTemplate.from_template("""
-        Analyze this conversation and extract important factual statements.
-        Conversation: {conversation}
-        Extract facts in JSON format:
-        {{"facts": [{{"subject": "...", "predicate": "...", "object": "...", 
-                      "confidence": 0.0-1.0, "source": "user or assistant"}}]}}
-        Only extract clear facts. Output valid JSON only.
-        """)
+Analyze this conversation and extract important factual statements.
+Conversation: {conversation}
+Extract facts in JSON format:
+{{"facts": [{{"subject": "...", "predicate": "...", "object": "...", 
+              "confidence": 0.0-1.0, "source": "user or assistant"}}]}}
+Only extract clear facts. Output valid JSON only.
+""")
         
         conversation_text = self._format_messages(messages)
         
@@ -141,10 +112,7 @@ class CoALABaselineAgent:
             print(f"Fact extraction error: {e}")
             return []
     
-    def store_semantic_facts(self, 
-                            facts: List[SemanticFact],
-                            user_id: Optional[str] = None) -> int:
-        """Store semantic facts in memory."""
+    def store_semantic_facts(self, facts: List[SemanticFact], user_id: Optional[str] = None) -> int:
         if user_id is None:
             user_id = self.current_user_id
             
@@ -167,23 +135,14 @@ class CoALABaselineAgent:
             self.vector_store.add_documents(documents)
         return len(documents)
     
-    def retrieve_semantic_facts(self, 
-                               query: str,
-                               user_id: Optional[str] = None,
-                               k: int = 5) -> List[Dict]:
-        """Retrieve relevant semantic facts."""
+    def retrieve_semantic_facts(self, query: str, user_id: Optional[str] = None, k: int = 5) -> List[Dict]:
         if user_id is None:
             user_id = self.current_user_id
             
         results = self.vector_store.similarity_search(
             query=query,
             k=k,
-            filter={
-                "$and": [
-                    {"type": {"$eq": "semantic"}},
-                    {"user_id": {"$eq": user_id}}
-                ]
-            }
+            filter={"$and": [{"type": {"$eq": "semantic"}}, {"user_id": {"$eq": user_id}}]}
         )
         
         return [{
@@ -193,9 +152,7 @@ class CoALABaselineAgent:
             "confidence": doc.metadata.get("confidence", 1.0)
         } for doc in results]
     
-    # Helper Methods
     def _format_messages(self, messages: List) -> str:
-        """Format messages into a readable string."""
         conversation_text = ""
         for msg in messages:
             if isinstance(msg, tuple):
@@ -207,7 +164,6 @@ class CoALABaselineAgent:
         return conversation_text
     
     def _format_semantic_context(self, facts: List[Dict]) -> str:
-        """Format semantic facts into context string."""
         if not facts:
             return "No relevant facts found."
         
@@ -218,17 +174,15 @@ class CoALABaselineAgent:
         return context
     
     def _unified_memory_agent(self, state: AgentState) -> dict:
-        """Main agent logic combining all memory types."""
         current_messages = state.get("messages", [])
         user_id = state.get("user_id", self.current_user_id)
-        conversation_id = state.get("conversation_id", 
-                                   f"conv_{datetime.now().timestamp()}")
+        conversation_id = state.get("conversation_id", f"conv_{datetime.now().timestamp()}")
         
         episodic_context = ""
         semantic_context = ""
+        past_episodes = []
         
         if current_messages:
-            # Get latest query
             latest_msg = current_messages[-1]
             if isinstance(latest_msg, tuple):
                 latest_query = latest_msg[1]
@@ -237,7 +191,6 @@ class CoALABaselineAgent:
             else:
                 latest_query = str(latest_msg)
             
-            # Retrieve episodic memories
             past_episodes = self.retrieve_episodic_memories(latest_query, k=2)
             if past_episodes:
                 episodic_context = "Relevant past conversations:\n"
@@ -245,11 +198,9 @@ class CoALABaselineAgent:
                     timestamp = episode.metadata.get('timestamp', 'Unknown')
                     episodic_context += f"[{timestamp}]:\n{episode.page_content[:200]}...\n\n"
             
-            # Retrieve semantic facts
             facts = self.retrieve_semantic_facts(latest_query, user_id=user_id, k=3)
             semantic_context = self._format_semantic_context(facts)
         
-        # Generate response with memory context
         memory_prompt = PromptTemplate.from_template("""
 You are an AI assistant with both episodic and semantic memory.
 
@@ -263,9 +214,7 @@ Current conversation:
 Respond using your memories when relevant. Be consistent with known facts and past conversations.
 """)
         
-        formatted_messages = self._format_messages(
-            current_messages[-5:] if current_messages else []
-        )
+        formatted_messages = self._format_messages(current_messages[-5:] if current_messages else [])
         
         chain = memory_prompt | self.llm | self.output_parser
         response = chain.invoke({
@@ -274,7 +223,6 @@ Respond using your memories when relevant. Be consistent with known facts and pa
             "messages": formatted_messages
         })
         
-        # Store memories after generating response
         if len(current_messages) >= 2:
             self.store_episodic_memory(conversation_id, current_messages)
         
@@ -291,22 +239,7 @@ Respond using your memories when relevant. Be consistent with known facts and pa
             "semantic_facts": state.get("semantic_facts", {})
         }
     
-    # Public Interface Methods
-    def process_message(self, 
-                       message: str,
-                       user_id: Optional[str] = None,
-                       conversation_id: Optional[str] = None) -> str:
-        """
-        Process a single message and return the response.
-        
-        Args:
-            message: The user's message
-            user_id: Optional user ID for personalization
-            conversation_id: Optional conversation ID for context
-            
-        Returns:
-            The agent's response
-        """
+    def process_message(self, message: str, user_id: Optional[str] = None, conversation_id: Optional[str] = None) -> str:
         if user_id:
             self.current_user_id = user_id
         if conversation_id:
@@ -325,14 +258,11 @@ Respond using your memories when relevant. Be consistent with known facts and pa
         
         result = self.app.invoke(state)
         
-        # Extract response from result
         if result and "messages" in result and result["messages"]:
             return result["messages"][-1].content
         return "I'm sorry, I couldn't process that message."
     
     def get_memory_stats(self) -> Dict:
-        """Get statistics about the agent's memory."""
-        # This is a simplified version - you might want to add more detailed stats
         return {
             "total_documents": len(self.vector_store.get()["ids"]) if hasattr(self.vector_store, 'get') else "N/A",
             "current_user": self.current_user_id,
